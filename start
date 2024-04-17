@@ -1,0 +1,155 @@
+#!/bin/bash
+
+# Script Configuration
+__version__="1.5"
+HOST='127.0.0.1'
+SERVER_DIR=".server"
+LOG_DIR="$SERVER_DIR/logs"
+LOG_FILE="$LOG_DIR/cloudflared.log"
+CONFIG_FILE="$SERVER_DIR/bin/config.json"
+PORT_FILE="$SERVER_DIR/bin/port.txt"
+PORT=8888  # Set the port number
+
+# Function to display a simple banner
+banner() {
+    echo "PROJECT-SARAH"
+}
+
+# Check if a package is installed
+check_package() {
+    local pkg="$1"
+    dpkg -s "$pkg" &> /dev/null
+}
+
+# Install PHP and Apache2 if not already installed
+install_php_apache() {
+    local packages=("php" "apache2")
+
+    for pkg in "${packages[@]}"; do
+        if ! check_package "$pkg"; then
+            sudo apt-get update > /dev/null
+            sudo apt-get install -y "$pkg" > /dev/null
+            echo "Installed $pkg"
+        fi
+    done
+}
+
+# Install Cloudflared if not already installed
+install_cloudflared() {
+    local arch=$(uname -m)
+    local file="cloudflared-linux-"
+    case "$arch" in
+        arm*|*Android*) file+="arm" ;;
+        aarch64) file+="arm64" ;;
+        x86_64) file+="amd64" ;;
+        *) file+="386" ;;
+    esac
+    local url="https://github.com/cloudflare/cloudflared/releases/latest/download/$file"
+
+    if [[ ! -f "$SERVER_DIR/cloudflared" ]]; then
+        curl -sL "$url" -o "$SERVER_DIR/cloudflared" && chmod +x "$SERVER_DIR/cloudflared"
+        echo "Installed Cloudflared"
+    fi
+}
+
+# Install Node.js and npm if not already installed
+install_node_npm() {
+    if ! check_package "nodejs"; then
+        curl -sL https://deb.nodesource.com/setup_14.x | sudo -E bash - > /dev/null
+        sudo apt-get install -y nodejs > /dev/null
+        echo "Installed Node.js and npm"
+    fi
+}
+
+# Start the Cloudflared tunnel
+start_cloudflared() {
+    "$SERVER_DIR/cloudflared" tunnel --url "http://$HOST:$PORT" --logfile "$LOG_FILE" > /dev/null 2>&1 &
+    sleep 5  # Wait for the tunnel to initialize
+    echo "Cloudflared tunnel started on port $PORT"
+    echo "$PORT" > "$PORT_FILE"  # Save the port number to a file for later use
+}
+
+# Start the PHP server
+start_php_server() {
+    php -S "$HOST:$PORT" -t "$SERVER_DIR/www" > /dev/null 2>&1 &
+    echo "PHP server started on $HOST:$PORT"
+}
+
+# Start the Node.js server
+start_node_server() {
+    node "$SERVER_DIR/server.js" "$PORT" > /dev/null 2>&1 &
+    echo "Node.js server started on $HOST:$PORT"
+}
+
+# Extract Cloudflared URL from log
+extract_cloudflared_url() {
+    local url=$(grep -o 'https://[-0-9a-z]*\.trycloudflare.com' "$LOG_FILE" | head -1)
+    echo "$url"
+}
+
+# Function to send message to Telegram using Telegram Bot API
+send_telegram_message() {
+    local token
+    local chat_id
+    if [[ -f "$CONFIG_FILE" ]]; then
+        token=$(jq -r '.telegram_bot_token' "$CONFIG_FILE")
+        chat_id=$(jq -r '.telegram_chat_id' "$CONFIG_FILE")
+        local message="$1"
+        curl -s -X POST "https://api.telegram.org/bot$token/sendMessage" -d "chat_id=$chat_id" -d "text=$message" > /dev/null
+    fi
+}
+
+# Prompt the user to insert Telegram bot token and chat ID
+prompt_telegram_credentials() {
+    read -p "Telegram Bot Token: " bot_token
+    read -p "Telegram Chat ID: " chat_id
+    # Create the config.json file
+    cat << EOF > "$CONFIG_FILE"
+{
+    "telegram_bot_token": "$bot_token",
+    "telegram_chat_id": "$chat_id"
+}
+EOF
+    echo "Configuration saved to $CONFIG_FILE"
+}
+
+# Update the config.json file if needed
+update_config() {
+    if [[ ! -f "$CONFIG_FILE" ]]; then
+        prompt_telegram_credentials
+    else
+        read -p "Config file already exists. Do you want to update it? (yes/no): " answer
+        if [[ "$answer" == "yes" ]]; then
+            prompt_telegram_credentials
+        fi
+    fi
+}
+
+# Main function to control script flow
+main() {
+    clear
+    banner
+    install_php_apache
+    install_cloudflared
+    install_node_npm
+    start_cloudflared
+    start_php_server
+    start_node_server
+    
+    if ! [[ -f "$CONFIG_FILE" ]]; then
+        update_config
+        exec "$0" "$@"
+    fi
+    
+    local url=$(extract_cloudflared_url)
+    if [[ -n "$url" ]]; then
+        send_telegram_message "The Project has Been deployed Successfully. URL: $url"
+        echo "The Project has Been deployed Successfully"
+    else
+        send_telegram_message "The Project has Failed"
+        echo "The Project has Failed" >&2
+    fi
+}
+
+# Run the main function
+main
