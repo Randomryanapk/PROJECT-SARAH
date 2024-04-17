@@ -3,12 +3,10 @@
 # Script Configuration
 __version__="1.5"
 HOST='127.0.0.1'
+PORT='8090'
 SERVER_DIR=".server"
-LOG_DIR="$SERVER_DIR/logs"
-LOG_FILE="$LOG_DIR/cloudflared.log"
+LOG_FILE="$SERVER_DIR/cloudflared.log"
 CONFIG_FILE="$SERVER_DIR/bin/config.json"
-PORT_FILE="$SERVER_DIR/bin/port.txt"
-PORT=8888  # Set the port number
 
 # Function to display a simple banner
 banner() {
@@ -18,20 +16,30 @@ banner() {
 # Check if a package is installed
 check_package() {
     local pkg="$1"
-    dpkg -s "$pkg" &> /dev/null
+    if pkg list-installed | grep -q $pkg; then
+        return 0  # Package is installed
+    else
+        return 1  # Package is not installed
+    fi
 }
 
 # Install PHP and Apache2 if not already installed
 install_php_apache() {
-    local packages=("php" "apache2")
+    if ! check_package "php"; then
+        pkg update && pkg upgrade
+        pkg install php
+    fi
 
-    for pkg in "${packages[@]}"; do
-        if ! check_package "$pkg"; then
-            sudo apt-get update > /dev/null
-            sudo apt-get install -y "$pkg" > /dev/null
-            echo "Installed $pkg"
-        fi
-    done
+    if ! check_package "apache2"; then
+        pkg update && pkg upgrade
+        pkg install apache2
+    fi
+}
+
+# Create necessary directories and handle files
+prepare_directories() {
+    mkdir -p "$SERVER_DIR/www"
+    : > "$LOG_FILE"  # Truncate log file
 }
 
 # Install Cloudflared if not already installed
@@ -39,52 +47,31 @@ install_cloudflared() {
     local arch=$(uname -m)
     local file="cloudflared-linux-"
     case "$arch" in
-        arm*|*Android*) file+="arm" ;;
         aarch64) file+="arm64" ;;
         x86_64) file+="amd64" ;;
-        *) file+="386" ;;
+        *) file+="arm" ;;  # Assuming arm for other architectures
     esac
     local url="https://github.com/cloudflare/cloudflared/releases/latest/download/$file"
 
     if [[ ! -f "$SERVER_DIR/cloudflared" ]]; then
         curl -sL "$url" -o "$SERVER_DIR/cloudflared" && chmod +x "$SERVER_DIR/cloudflared"
-        echo "Installed Cloudflared"
-    fi
-}
-
-# Install Node.js and npm if not already installed
-install_node_npm() {
-    if ! check_package "nodejs"; then
-        curl -sL https://deb.nodesource.com/setup_14.x | sudo -E bash - > /dev/null
-        sudo apt-get install -y nodejs > /dev/null
-        echo "Installed Node.js and npm"
     fi
 }
 
 # Start the Cloudflared tunnel
 start_cloudflared() {
-    "$SERVER_DIR/cloudflared" tunnel --url "http://$HOST:$PORT" --logfile "$LOG_FILE" > /dev/null 2>&1 &
+    "$SERVER_DIR/cloudflared" tunnel --url http://$HOST:$PORT --logfile "$LOG_FILE" > /dev/null 2>&1 &
     sleep 5  # Wait for the tunnel to initialize
-    echo "Cloudflared tunnel started on port $PORT"
-    echo "$PORT" > "$PORT_FILE"  # Save the port number to a file for later use
-}
-
-# Start the PHP server
-start_php_server() {
-    php -S "$HOST:$PORT" -t "$SERVER_DIR/www" > /dev/null 2>&1 &
-    echo "PHP server started on $HOST:$PORT"
-}
-
-# Start the Node.js server
-start_node_server() {
-    node "$SERVER_DIR/server.js" "$PORT" > /dev/null 2>&1 &
-    echo "Node.js server started on $HOST:$PORT"
 }
 
 # Extract Cloudflared URL from log
 extract_cloudflared_url() {
     local url=$(grep -o 'https://[-0-9a-z]*\.trycloudflare.com' "$LOG_FILE" | head -1)
-    echo "$url"
+    if [[ -n "$url" ]]; then
+        echo "$url"
+    else
+        return 1
+    fi
 }
 
 # Function to send message to Telegram using Telegram Bot API
@@ -101,6 +88,7 @@ send_telegram_message() {
 
 # Prompt the user to insert Telegram bot token and chat ID
 prompt_telegram_credentials() {
+    echo "Please insert your Telegram bot token and chat ID:"
     read -p "Telegram Bot Token: " bot_token
     read -p "Telegram Chat ID: " chat_id
     # Create the config.json file
@@ -113,31 +101,17 @@ EOF
     echo "Configuration saved to $CONFIG_FILE"
 }
 
-# Update the config.json file if needed
-update_config() {
-    if [[ ! -f "$CONFIG_FILE" ]]; then
-        prompt_telegram_credentials
-    else
-        read -p "Config file already exists. Do you want to update it? (yes/no): " answer
-        if [[ "$answer" == "yes" ]]; then
-            prompt_telegram_credentials
-        fi
-    fi
-}
-
 # Main function to control script flow
 main() {
     clear
     banner
+    prepare_directories
     install_php_apache
     install_cloudflared
-    install_node_npm
     start_cloudflared
-    start_php_server
-    start_node_server
     
     if ! [[ -f "$CONFIG_FILE" ]]; then
-        update_config
+        prompt_telegram_credentials
         exec "$0" "$@"
     fi
     
