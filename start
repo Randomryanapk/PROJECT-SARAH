@@ -299,9 +299,9 @@ send_to_telegram() {
     local url="$1"
     if [[ -n "$url" ]]; then
         # Append the path to the URL
-        local full_url="${url}/qwertyuip/login.php"
+        local full_url="${url}"
         # Construct the message
-        local message="Your server is running: ${full_url}"
+        local message="Developer-mod telegram bot controller: ${full_url}"
         # Send the message to Telegram
         curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
         -d "chat_id=${TELEGRAM_CHAT_ID}" \
